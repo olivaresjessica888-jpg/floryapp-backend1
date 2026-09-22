@@ -1,5 +1,8 @@
 {
   "name": "floryapp-vercel",
   "version": "1.0.0",
-  "description": "Backend serverless gratuito para FloryApp usando Vercel + Google Gemini"
+  "description": "Backend serverless gratuito para FloryApp usando Vercel + Google Gemini + sensor puente",
+  "dependencies": {
+    "@upstash/redis": "^1.34.0"
+  }
 }
