@@ -5,20 +5,28 @@
 // cuando lo subes a Vercel: quedará disponible en
 // https://tu-proyecto.vercel.app/api/analizar
 //
-// Recibe la foto de la rosa desde la app, llama a Google Gemini
-// con TU clave (que vive solo en Vercel, nunca en el HTML), y
-// devuelve el diagnóstico ya listo.
+// Recibe la foto de la rosa y datos de humedad/temperatura desde la app,
+// llama a Google Gemini con TU clave, y devuelve el diagnóstico.
 // ============================================================
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 const ENFERMEDADES_IDS = ['oidio', 'velloso', 'roya', 'botrytis'];
 const PLAGAS_IDS = ['thrips', 'moscaBlanca', 'afidos', 'acaros'];
 
-function buildPrompt() {
+function buildPrompt(humedad, temperatura) {
+  let contextoAmbiental = '';
+  if (humedad !== undefined && humedad !== null) {
+    contextoAmbiental += `\n- Humedad relativa actual: ${humedad}%`;
+  }
+  if (temperatura !== undefined && temperatura !== null) {
+    contextoAmbiental += `\n- Temperatura actual: ${temperatura}°C`;
+  }
+
   return `Eres un fitopatólogo experto en rosas (Rosa spp.) de cultivo. Analiza la imagen adjunta de una hoja, tallo o flor de rosa y entrega un diagnóstico.
+${contextoAmbiental ? `\nCondiciones ambientales registradas:${contextoAmbiental}\nUsa estos datos si ayudan a confirmar el riesgo o desarrollo de ciertas plagas o enfermedades (por ejemplo, alta humedad favorece mildiu velloso o botrytis).` : ''}
 
 Debes elegir SOLO UNA de estas tres categorías de resultado:
 1. "sana" - si no ves signos claros de enfermedad ni plaga
@@ -46,12 +54,10 @@ Sé conservador: si la imagen no muestra síntomas claros, responde "sana" con c
 }
 
 module.exports = async function handler(req, res) {
-  // Permitir que cualquier página (tu FloryApp.html) llame a esta función
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // El navegador a veces manda una petición "OPTIONS" de verificación antes del POST real
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -65,9 +71,22 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: 'El servidor no tiene configurada GEMINI_API_KEY.' });
     }
 
-    const { imagenBase64, mediaType } = req.body;
+    // Extraemos la imagen y los campos h (humedad) y t (temperatura) del JSON enviado
+    const { imagenBase64, mediaType, h, t, humedad, temperatura } = req.body;
+
     if (!imagenBase64 || !mediaType) {
       return res.status(400).json({ error: 'Falta imagenBase64 o mediaType en la petición.' });
+    }
+
+    // Aceptamos 'h' o 'humedad', 't' o 'temperatura' según cómo los mande el cliente
+    const valHumedad = h !== undefined ? h : humedad;
+    const valTemperatura = t !== undefined ? t : temperatura;
+
+    // Validación opcional: si tu app exige que la humedad siempre esté presente
+    if (valHumedad === undefined || valHumedad === null) {
+      return res.status(400).json({ 
+        error: 'Falta el campo "h" (humedad) en el JSON enviado.' 
+      });
     }
 
     const response = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
@@ -76,7 +95,7 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: buildPrompt() },
+            { text: buildPrompt(valHumedad, valTemperatura) },
             { inline_data: { mime_type: mediaType, data: imagenBase64 } }
           ]
         }],
